@@ -1,0 +1,43 @@
+# Dataset & generated artifacts
+/data/raw/
+/data/splits/*.csv
+/data/splits/*.json
+!/data/splits/.gitkeep
+
+# Training outputs
+/checkpoints/**
+!/checkpoints/.gitkeep
+/logs/**
+!/logs/.gitkeep
+/outputs/**
+!/outputs/.gitkeep
+!/outputs/plots/
+!/outputs/export/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+env/
+.*venv*/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local overrides
+configs/local_*.yaml
+*.local.yaml
