@@ -1,10 +1,3 @@
-"""Logging: root logger setup, plus a combined CSV + TensorBoard epoch logger.
-
-One `EpochLogger` instance is shared by Trainer and evaluate.py so per-epoch
-metrics land in TensorBoard and a flat CSV through a single code path
-instead of two.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -15,15 +8,7 @@ from typing import Any
 
 from torch.utils.tensorboard import SummaryWriter
 
-
 def setup_logging(log_dir: str | Path, name: str = "krishinova_cv", level: int = logging.INFO) -> logging.Logger:
-    """Configure the root logger with a console handler and a per-run file
-    handler under `log_dir/{name}.log`.
-
-    Uses the same `%(asctime)s - %(levelname)s - %(message)s` format as the
-    monorepo's existing RAG service, for consistent logs across the
-    project's Python components.
-    """
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -31,7 +16,7 @@ def setup_logging(log_dir: str | Path, name: str = "krishinova_cv", level: int =
 
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers.clear()  # avoid duplicate handlers if setup_logging runs twice (e.g. under pytest)
+    root.handlers.clear()  
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
@@ -43,14 +28,7 @@ def setup_logging(log_dir: str | Path, name: str = "krishinova_cv", level: int =
 
     return logging.getLogger(name)
 
-
 class EpochLogger:
-    """Writes per-epoch metrics to TensorBoard and a flat CSV simultaneously.
-
-    Assumes `metrics` has the same set of keys on every call within a run —
-    true in practice since Trainer/evaluate always log the output of the
-    same MetricTracker shape.
-    """
 
     def __init__(
         self,

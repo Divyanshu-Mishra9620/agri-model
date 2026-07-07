@@ -1,7 +1,3 @@
-"""Reproducibility metadata: package versions, OS/GPU info, and (if available)
-the current git commit hash — written once per run for provenance.
-"""
-
 from __future__ import annotations
 
 import json
@@ -18,14 +14,12 @@ _TRACKED_MODULES = [
     "pandas", "sklearn", "PIL", "onnx", "onnxruntime",
 ]
 
-
 def _module_version(module_name: str) -> str:
     try:
         module = __import__(module_name)
         return getattr(module, "__version__", "unknown")
     except ImportError:
         return "not installed"
-
 
 def _git_commit() -> str:
     try:
@@ -35,10 +29,8 @@ def _git_commit() -> str:
     except Exception:
         return "unknown (not a git repo or git unavailable)"
 
-
 def collect_system_info() -> dict[str, Any]:
-    """Gather Python/OS/GPU/package-version info for the current process."""
-    import torch  # local import so this module can be imported before torch elsewhere
+    import torch  
 
     gpus = []
     if torch.cuda.is_available():
@@ -63,9 +55,7 @@ def collect_system_info() -> dict[str, Any]:
         "packages": {name: _module_version(name) for name in _TRACKED_MODULES},
     }
 
-
 def log_system_info(log_dir: str | Path) -> dict[str, Any]:
-    """Log system info and persist it as JSON under `log_dir/system_info.json`."""
     info = collect_system_info()
     logger.info("System info: %s", json.dumps(info, indent=2))
 

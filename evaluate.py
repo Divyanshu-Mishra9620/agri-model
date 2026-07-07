@@ -1,14 +1,3 @@
-"""Standalone evaluation on the held-out test set: computes the full metric
-suite (top-1/3 accuracy, precision/recall/F1, confusion matrix, per-class
-accuracy) using the exact same engine.metrics.MetricTracker training-time
-validation uses, plus a many/medium/few-shot bucket breakdown — the standard
-long-tail-recognition reporting convention, so a single macro number can't
-hide that rare classes are systematically worse served.
-
-Usage:
-    python evaluate.py --checkpoint checkpoints/convnextv2_tiny_baseline/best.pt
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -32,17 +21,11 @@ from utils.plots import plot_confusion_matrix, plot_worst_classes
 
 logger = logging.getLogger(__name__)
 
-
 def _bucket_report(class_counts: dict[str, int], per_class_accuracy: dict[str, float]) -> dict:
-    """Group per-class accuracy by how much TEST data each class actually
-    had (not train count — a class can have thousands of train images but
-    only 1-2 test images near the min_samples_for_split boundary). Standard
-    long-tail-recognition thresholds: many->=100, medium 20-99, few <20.
-    """
     buckets = {"many_shot (>=100 imgs)": [], "medium_shot (20-99 imgs)": [], "few_shot (<20 imgs)": []}
     for name, count in class_counts.items():
         acc = per_class_accuracy.get(name)
-        if acc is None or math.isnan(acc):  # NaN: class had 0 test support, nothing to bucket
+        if acc is None or math.isnan(acc):  
             continue
         bucket = "many_shot (>=100 imgs)" if count >= 100 else "medium_shot (20-99 imgs)" if count >= 20 else "few_shot (<20 imgs)"
         buckets[bucket].append(acc)
@@ -51,7 +34,6 @@ def _bucket_report(class_counts: dict[str, int], per_class_accuracy: dict[str, f
         bucket: {"num_classes": len(accs), "mean_accuracy": (sum(accs) / len(accs)) if accs else None}
         for bucket, accs in buckets.items()
     }
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a trained checkpoint on the held-out test set.")
@@ -83,10 +65,6 @@ def main() -> None:
             images = to_channels_last(images.to(device), enabled=cfg.train.channels_last)
             targets = targets.to(device)
             logits = model(images)
-            # Plain CE regardless of training loss: keeps the reported test
-            # loss on one fixed, comparable scale across runs trained with
-            # different loss.name choices (focal/weighted_ce aren't even
-            # numerically comparable to each other).
             loss = F.cross_entropy(logits, targets)
             tracker.update(logits, targets, loss.item())
 
@@ -126,7 +104,6 @@ def main() -> None:
     )
     logger.info("Bucket report: %s", json.dumps(bucket_report, indent=2))
     logger.info("Full report written to %s", output_dir)
-
 
 if __name__ == "__main__":
     main()

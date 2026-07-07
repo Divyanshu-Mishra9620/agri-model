@@ -1,14 +1,3 @@
-"""Training entry point: builds the data pipeline, model, optimizer,
-scheduler, and loss from a YAML config, then runs Stage 1 (and, if
-`train.stage2.enabled`, Stage 2 decoupled classifier re-training) via
-engine.trainer.Trainer.
-
-Usage:
-    python train.py --config configs/default.yaml
-    python train.py --config configs/default.yaml --override train.epochs=30 optimizer.lr=1e-4
-    python train.py --override train.resume_from=checkpoints/convnextv2_tiny_baseline/last.pt
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -27,20 +16,7 @@ from utils.config_loader import load_config, save_config
 from utils.device import get_device, prepare_model
 from utils.seed import set_seed
 
-# Deliberately NOT importing engine.trainer / engine.optimizer / engine.losses /
-# engine.scheduler / models.convnext_v2 / utils.logging_utils / utils.checkpoint /
-# utils.system_info / datasets.sampler at module level. On Windows, a DataLoader
-# with num_workers > 0 also uses spawn-based multiprocessing (same mechanism as
-# ProcessPoolExecutor) — every worker re-executes this module's top level just to
-# resolve CropDiseaseDataset for unpickling. Those modules transitively pull in
-# torch.utils.tensorboard, matplotlib, and timm (via engine.optimizer's own
-# import of models.convnext_v2) — all pointless for a worker whose only job is
-# calling CropDiseaseDataset.__getitem__. This is the exact same class of bug
-# already found and fixed in scripts/validate_dataset.py; imported lazily here
-# instead, inside the functions that actually use them.
-
 logger = logging.getLogger(__name__)
-
 
 def _load_split_data(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
     splits_dir = Path(cfg.data.splits_dir)
@@ -58,11 +34,10 @@ def _load_split_data(cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame, dict[str,
     class_to_idx = json.loads(class_to_idx_path.read_text(encoding="utf-8"))
     return pd.read_csv(train_manifest), pd.read_csv(val_manifest), class_to_idx
 
-
 def _build_loaders(
     cfg: Config, train_df: pd.DataFrame, val_df: pd.DataFrame, class_to_idx: dict[str, int]
 ) -> tuple[DataLoader, DataLoader]:
-    from datasets.sampler import build_weighted_sampler  # lazy: only the main process builds the sampler
+    from datasets.sampler import build_weighted_sampler 
 
     train_dataset = CropDiseaseDataset(train_df, class_to_idx, transform=build_train_transforms(cfg.data, cfg.augmentation))
     val_dataset = CropDiseaseDataset(val_df, class_to_idx, transform=build_eval_transforms(cfg.data, cfg.augmentation))
@@ -73,12 +48,12 @@ def _build_loaders(
         train_dataset,
         batch_size=cfg.data.batch_size,
         sampler=sampler,
-        shuffle=sampler is None,  # sampler and shuffle=True are mutually exclusive per DataLoader's contract
+        shuffle=sampler is None,  
         num_workers=cfg.data.num_workers,
         pin_memory=cfg.data.pin_memory,
         persistent_workers=cfg.data.persistent_workers and cfg.data.num_workers > 0,
         prefetch_factor=cfg.data.prefetch_factor if cfg.data.num_workers > 0 else None,
-        drop_last=True,  # avoids a possibly size-1 trailing batch and keeps batch shapes stable for torch.compile
+        drop_last=True, 
     )
     val_loader = DataLoader(
         val_dataset,
@@ -87,12 +62,8 @@ def _build_loaders(
         num_workers=cfg.data.num_workers,
         pin_memory=cfg.data.pin_memory,
         persistent_workers=cfg.data.persistent_workers and cfg.data.num_workers > 0,
-        # drop_last is NOT set here (defaults False): metric computation must
-        # see every val sample, especially rare classes with only 1-2 images
-        # that dropping a partial batch could silently erase from the report.
     )
     return train_loader, val_loader
-
 
 def _run_stage1(cfg: Config, model, train_loader, val_loader, device, class_to_idx: dict[str, int]):
     from engine.losses import build_loss
@@ -129,18 +100,7 @@ def _run_stage1(cfg: Config, model, train_loader, val_loader, device, class_to_i
     )
     return trainer
 
-
 def _run_stage2(cfg: Config, model, train_loader, val_loader, device, class_to_idx: dict[str, int]):
-    """Decoupled classifier re-training (see configs/schema.py::Stage2Config):
-    freeze the backbone and retrain only the classifier head with a more
-    aggressively rebalancing loss, now that there's no backbone gradient left
-    for that aggressiveness to destabilize.
-
-    Reuses the single `Config` dataclass by cloning `cfg` and overwriting the
-    top-level loss/optimizer-lr/scheduler-warmup/experiment-name fields with
-    Stage 2's values, rather than threading a second config type through
-    Trainer — Trainer only ever needs to see one `Config` at a time.
-    """
     from engine.losses import build_loss
     from engine.optimizer import build_optimizer
     from engine.scheduler import build_scheduler
@@ -158,13 +118,10 @@ def _run_stage2(cfg: Config, model, train_loader, val_loader, device, class_to_i
     if cfg.train.stage2.freeze_backbone:
         freeze_backbone(model)
 
-    # Rebuilt without the Stage 1 sampler: Stage 2's own rebalancing loss is
-    # the correction mechanism now, and keeping the sampler too would
-    # double-correct exactly as config_loader._validate warns about.
     stage2_train_loader = DataLoader(
         train_loader.dataset,
         batch_size=cfg.data.batch_size,
-        shuffle=True,
+        sampler=train_loader.sampler,
         num_workers=cfg.data.num_workers,
         pin_memory=cfg.data.pin_memory,
         persistent_workers=cfg.data.persistent_workers and cfg.data.num_workers > 0,
@@ -174,7 +131,7 @@ def _run_stage2(cfg: Config, model, train_loader, val_loader, device, class_to_i
 
     class_counts = train_loader.dataset.df["class_name"].value_counts().to_dict()
     loss_fn = build_loss(stage2_cfg.loss, class_counts=class_counts, class_to_idx=class_to_idx)
-    optimizer = build_optimizer(model, stage2_cfg.optimizer)
+    optimizer = build_optimizer(model, stage2_cfg.optimizer, apply_head_lr_multiplier=False)
     scheduler = build_scheduler(
         optimizer, stage2_cfg.scheduler, epochs=cfg.train.stage2.epochs, steps_per_epoch=len(stage2_train_loader),
     )
@@ -184,15 +141,14 @@ def _run_stage2(cfg: Config, model, train_loader, val_loader, device, class_to_i
     logger.info("Stage 2 complete.")
     return trainer
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train the crop disease classifier.")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--override", nargs="*", default=[], help='e.g. --override train.epochs=30 optimizer.lr=1e-4')
     args = parser.parse_args()
 
-    from models.convnext_v2 import build_model  # lazy: pulls in timm
-    from utils.logging_utils import setup_logging  # lazy: pulls in torch.utils.tensorboard
+    from models.convnext_v2 import build_model 
+    from utils.logging_utils import setup_logging  
     from utils.system_info import log_system_info
 
     cfg = load_config(args.config, overrides=args.override)
@@ -214,9 +170,5 @@ def main() -> None:
     if cfg.train.stage2.enabled:
         _run_stage2(cfg, model, train_loader, val_loader, device, class_to_idx)
 
-
 if __name__ == "__main__":
-    # Required on Windows: num_workers > 0 uses spawn-based multiprocessing,
-    # which re-imports this module in each worker — without this guard, that
-    # re-import would re-trigger the entire training run, recursively.
     main()

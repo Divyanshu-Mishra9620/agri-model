@@ -1,11 +1,3 @@
-"""Benchmark DataLoader throughput across a range of num_workers values, so
-`data.num_workers` can be chosen empirically instead of guessed — especially
-useful on Windows, where multiprocessing (spawn-based, not fork) overhead
-differs meaningfully from Linux.
-
-Run from the repo root: `python scripts/benchmark_dataloader.py`
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -26,7 +18,6 @@ from utils.config_loader import load_config
 from utils.logging_utils import setup_logging
 
 logger = logging.getLogger(__name__)
-
 
 def benchmark(cfg: Config, manifest_path: Path, num_workers_options: list[int], num_batches: int) -> None:
     if not manifest_path.exists():
@@ -53,7 +44,7 @@ def benchmark(cfg: Config, manifest_path: Path, num_workers_options: list[int], 
 
         try:
             it = iter(loader)
-            next(it)  # warm-up: excludes one-time worker startup cost from the timed region
+            next(it)  
 
             start = time.perf_counter()
             n_images = 0
@@ -75,7 +66,6 @@ def benchmark(cfg: Config, manifest_path: Path, num_workers_options: list[int], 
         finally:
             del loader
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark DataLoader throughput.")
     parser.add_argument("--config", default="configs/default.yaml")
@@ -90,8 +80,5 @@ def main() -> None:
     manifest_path = Path(args.manifest) if args.manifest else Path(cfg.data.splits_dir) / "manifest_train.csv"
     benchmark(cfg, manifest_path, args.num_workers, args.num_batches)
 
-
 if __name__ == "__main__":
-    # Required on Windows: num_workers > 0 uses spawn-based multiprocessing,
-    # which re-imports this module in each worker.
     main()

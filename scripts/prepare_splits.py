@@ -1,9 +1,3 @@
-"""CLI: build train/val/test manifests from the dataset (or its validated
-clean manifest) using the imbalance-aware splitter in datasets/split.py.
-
-Run from the repo root: `python scripts/prepare_splits.py`
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -26,16 +20,7 @@ from utils.logging_utils import setup_logging
 
 logger = logging.getLogger(__name__)
 
-
 def _check_class_to_idx_stability(new_mapping: dict[str, int], splits_dir: Path, force: bool) -> None:
-    """`class_to_idx.json` is the fixed source of truth a trained checkpoint's
-    output indices are keyed against. If the dataset's class set has changed
-    since the last split (a class added or removed) and this mapping were
-    silently regenerated, every existing checkpoint's label mapping would be
-    silently invalidated — predictions would still "work" (no crash) but
-    point at the wrong disease names. Refuse to proceed unless the mapping
-    is unchanged or the user explicitly passes --force.
-    """
     existing_path = splits_dir / "class_to_idx.json"
     if not existing_path.exists():
         return
@@ -59,7 +44,6 @@ def _check_class_to_idx_stability(new_mapping: dict[str, int], splits_dir: Path,
     if not force:
         raise RuntimeError(f"{message} Re-run with --force to proceed anyway (and retrain from scratch).")
     logger.warning("%s Proceeding because --force was passed.", message)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build train/val/test manifests.")
@@ -93,7 +77,6 @@ def main() -> None:
     save_splits(train_df, val_df, test_df, class_to_idx, report, cfg.data.splits_dir)
 
     logger.info("Done: %d classes -> %s", len(class_to_idx), cfg.data.splits_dir)
-
 
 if __name__ == "__main__":
     main()

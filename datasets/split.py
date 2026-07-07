@@ -1,23 +1,3 @@
-"""Class-imbalance-aware train/val/test splitting.
-
-With classes ranging from ~7 to ~60,000 images, a single global stratified
-split (e.g. `sklearn.model_selection.train_test_split(stratify=...)`) either
-raises on classes smaller than the number of splits, or silently starves
-rare classes of validation/test coverage. This module splits *per class*
-instead — which is what stratification means by construction — and applies
-three explicit, always-safe rules by class size:
-
-  n < min_samples_for_eval        -> all samples to train; excluded from val/test
-  min_samples_for_eval <= n
-      < min_samples_for_split     -> up to 1 sample each forced into val and
-                                      test, remainder to train (never empties
-                                      train, even for pathological configs)
-  n >= min_samples_for_split      -> proportional split at val_split/test_split
-
-Every class is handled predictably; nothing crashes and nothing is silently
-dropped.
-"""
-
 from __future__ import annotations
 
 import json
@@ -35,11 +15,8 @@ logger = logging.getLogger(__name__)
 MANIFEST_COLUMNS = ["filepath", "class_name"]
 _VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-
 @dataclass
 class SplitReport:
-    """Summary of how the split behaved — logged and saved alongside the
-    manifests so an unusual dataset shape is always visible, never silent."""
 
     class_counts: dict[str, int] = field(default_factory=dict)
     excluded_from_eval: list[str] = field(default_factory=list)
@@ -56,17 +33,11 @@ class SplitReport:
             "split_sizes": self.split_sizes,
         }
 
-
 def build_manifest_from_folder(root_dir: str | Path) -> pd.DataFrame:
-    """Scan an ImageFolder-style tree (root_dir/<ClassName>/<image>) into a
-    flat manifest. Prefer `load_clean_manifest` (the output of
-    scripts/validate_dataset.py) over this when it exists, so corrupted
-    files never enter the split."""
     root_dir = Path(root_dir)
     if not root_dir.exists():
         raise FileNotFoundError(
-            f"Dataset root not found: {root_dir}. Point data.root_dir at your "
-            f"ImageFolder-style dataset (root_dir/<ClassName>/<image>.jpg)."
+            f"Dataset root not found: {root_dir}"
         )
 
     rows = []
@@ -76,20 +47,17 @@ def build_manifest_from_folder(root_dir: str | Path) -> pd.DataFrame:
                 rows.append({"filepath": str(file_path), "class_name": class_dir.name})
 
     if not rows:
-        raise ValueError(f"No images found under {root_dir}. Expected root_dir/<ClassName>/<image>.")
+        raise ValueError(f"No images found under {root_dir}")
 
     df = pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
     logger.info("Scanned %d images across %d classes from %s", len(df), df["class_name"].nunique(), root_dir)
     return df
 
-
 def load_clean_manifest(path: str | Path) -> pd.DataFrame:
-    """Load the manifest written by scripts/validate_dataset.py."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(
-            f"Clean manifest not found: {path}. Run `python scripts/validate_dataset.py` "
-            f"first, or point data.clean_manifest at an existing one."
+            f"Clean manifest not found: {path}"
         )
     df = pd.read_csv(path)
     missing = set(MANIFEST_COLUMNS) - set(df.columns)
@@ -97,26 +65,12 @@ def load_clean_manifest(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"Manifest {path} is missing column(s): {missing}")
     return df[MANIFEST_COLUMNS]
 
-
 def build_class_to_idx(class_names: list[str]) -> dict[str, int]:
-    """Alphabetically sorted so the mapping is stable regardless of
-    filesystem iteration order, which differs across OSes."""
     return {name: idx for idx, name in enumerate(sorted(set(class_names)))}
-
 
 def create_splits(
     df: pd.DataFrame, cfg: DataConfig, seed: int = 42
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, SplitReport]:
-    """Split `df` (columns: filepath, class_name) into train/val/test.
-
-    A single `np.random.RandomState(seed)` is created once and threaded
-    through every class's shuffle (rather than reseeding per class from
-    `hash(class_name)` — Python's string hash is randomized per-process by
-    `PYTHONHASHSEED` and setting that env var at runtime does not affect the
-    already-running interpreter, so it would silently break reproducibility).
-    Classes are iterated in a fixed sorted order so the whole split is fully
-    deterministic for a given seed.
-    """
     report = SplitReport()
     train_parts, val_parts, test_parts = [], [], []
     rng = np.random.RandomState(seed)
@@ -132,10 +86,6 @@ def create_splits(
             continue
 
         if n < cfg.min_samples_for_split:
-            # Guarantee train always gets >=1 sample, even for pathological
-            # configs (e.g. min_samples_for_eval set very low): only carve
-            # out a test sample if n>=2, and only a val sample if one still
-            # remains for train afterwards.
             test_n = 1 if n >= 2 else 0
             val_n = 1 if (n - test_n) >= 2 else 0
             test_part = shuffled.iloc[:test_n]
@@ -178,7 +128,6 @@ def create_splits(
     logger.info("Split sizes: %s", report.split_sizes)
     return train_df, val_df, test_df, report
 
-
 def save_splits(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -187,11 +136,6 @@ def save_splits(
     report: SplitReport,
     splits_dir: str | Path,
 ) -> None:
-    """Persist the splits + class mapping + report for reproducibility.
-
-    `class_to_idx.json` is also what predict.py / inference.predictor use to
-    map model output indices back to human-readable disease names.
-    """
     splits_dir = Path(splits_dir)
     splits_dir.mkdir(parents=True, exist_ok=True)
 

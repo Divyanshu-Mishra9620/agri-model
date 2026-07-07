@@ -1,12 +1,3 @@
-"""Inference: load a trained model (checkpoint or exported TorchScript/ONNX
-artifact) and run predictions on single images, a folder, or a batch.
-
-This is the one place "load a trained model" and "preprocess + predict" are
-implemented — scripts/export_model.py, evaluate.py, and predict.py all
-reuse `load_model_from_checkpoint` / `DiseasePredictor` from here rather
-than each re-implementing their own copy.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -29,10 +20,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
-
 def load_model_from_checkpoint(checkpoint_path: str | Path) -> tuple[torch.nn.Module, Config, dict[str, int]]:
-    """Rebuild an eval-mode model exactly as it was trained, from a
-    checkpoint saved by utils.checkpoint.save_checkpoint."""
     checkpoint = load_checkpoint(checkpoint_path)
     cfg = config_from_dict(checkpoint["config"])
     class_to_idx = checkpoint["class_to_idx"]
@@ -42,17 +30,7 @@ def load_model_from_checkpoint(checkpoint_path: str | Path) -> tuple[torch.nn.Mo
     model.eval()
     return model, cfg, class_to_idx
 
-
 class DiseasePredictor:
-    """Loads a trained model once and serves predictions.
-
-    Accepts either a raw `.pt` training checkpoint or an exported
-    `.torchscript.pt` / `.onnx` artifact — the right backend is chosen from
-    the file extension. Preprocessing always goes through
-    `datasets.transforms.build_eval_transforms`, the exact same function
-    used for validation during training, so serving can never silently
-    drift from what the model was evaluated against.
-    """
 
     def __init__(self, model_path: str | Path, device: torch.device | None = None):
         model_path = Path(model_path)
@@ -66,7 +44,7 @@ class DiseasePredictor:
         )
 
     def _load(self, model_path: Path):
-        suffix = "".join(model_path.suffixes)  # captures ".torchscript.pt" as one unit, not just ".pt"
+        suffix = "".join(model_path.suffixes)  
 
         if suffix.endswith(".onnx"):
             import onnxruntime as ort
@@ -102,11 +80,6 @@ class DiseasePredictor:
 
     @staticmethod
     def _load_sibling_config(model_path: Path) -> Config:
-        # Exported artifacts carry no config of their own — scripts/export_model.py
-        # writes this sidecar precisely so preprocessing (image size,
-        # normalization) can be reconstructed exactly, instead of silently
-        # falling back to defaults that would be wrong for any model trained
-        # at a non-default image_size (a train/serve skew bug, not a detail).
         sidecar = model_path.parent / "config.yaml"
         if not sidecar.exists():
             raise FileNotFoundError(
@@ -135,10 +108,6 @@ class DiseasePredictor:
             return logits.cpu().numpy()
 
     def predict(self, image: Union[str, Path, np.ndarray], top_k: int = 3) -> dict:
-        """Predict on a single image. Returns disease name, confidence
-        (0-100, matching this monorepo's existing Analysis schema
-        convention), top-k predictions, and inference latency in ms.
-        """
         start = time.perf_counter()
 
         array = self._load_image(image)
@@ -161,8 +130,6 @@ class DiseasePredictor:
         }
 
     def predict_batch(self, images: list[Union[str, Path, np.ndarray]], top_k: int = 3) -> list[dict]:
-        """Predict on a list of images in one forward pass (more efficient
-        than calling `predict` in a loop for more than a handful of images)."""
         start = time.perf_counter()
 
         arrays = [self._load_image(image) for image in images]
@@ -190,8 +157,6 @@ class DiseasePredictor:
         return results
 
     def predict_folder(self, folder: str | Path, top_k: int = 3) -> dict[str, dict]:
-        """Predict on every image in a folder (non-recursive). Returns a
-        dict keyed by filename."""
         folder = Path(folder)
         image_paths = sorted(p for p in folder.iterdir() if p.suffix.lower() in _VALID_EXTENSIONS)
         if not image_paths:
@@ -199,7 +164,6 @@ class DiseasePredictor:
 
         predictions = self.predict_batch(image_paths, top_k=top_k)
         return {path.name: pred for path, pred in zip(image_paths, predictions)}
-
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
     shifted = logits - np.max(logits)

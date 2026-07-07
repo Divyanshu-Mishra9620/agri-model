@@ -1,12 +1,3 @@
-"""Metric accumulation and computation for classification: top-1/3 accuracy,
-precision/recall/F1 (macro & weighted), per-class accuracy, and the
-confusion matrix.
-
-Shared by Trainer's validation loop and evaluate.py so training-time and
-standalone evaluation always compute metrics exactly the same way — one
-implementation, not two that could drift apart.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -18,7 +9,6 @@ from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class EpochMetrics:
     loss: float
@@ -29,16 +19,10 @@ class EpochMetrics:
     f1_macro: float
     f1_weighted: float
     macro_f1_eval_subset: float
-    """Macro-F1 restricted to classes with >= `min_eval_samples` support in
-    this split. This is the metric `train.early_stopping_metric` should
-    name: unrestricted macro-F1 can swing by 1/num_classes on a single
-    borderline prediction for a 1-sample class, independent of real model
-    quality."""
     per_class_accuracy: dict[str, float] = field(default_factory=dict)
     confusion: np.ndarray | None = None
 
     def to_log_dict(self) -> dict[str, float]:
-        """Flat dict of scalar metrics only, for CSV/TensorBoard logging."""
         return {
             "loss": self.loss,
             "top1_accuracy": self.top1_accuracy,
@@ -50,10 +34,7 @@ class EpochMetrics:
             "macro_f1_eval_subset": self.macro_f1_eval_subset,
         }
 
-
 class MetricTracker:
-    """Accumulates logits/targets/loss across an epoch, then computes a full
-    `EpochMetrics` on demand via `compute()`."""
 
     def __init__(self, idx_to_class: dict[int, str], min_eval_samples: int = 2):
         self.idx_to_class = idx_to_class
@@ -117,13 +98,11 @@ class MetricTracker:
             confusion=confusion,
         )
 
-
 def _topk_accuracy(logits: torch.Tensor, targets: torch.Tensor, ks: tuple[int, ...]) -> tuple[float, ...]:
     max_k = min(max(ks), logits.size(1))
     _, top_preds = logits.topk(max_k, dim=1)
     correct = top_preds.eq(targets.unsqueeze(1))
     return tuple(correct[:, : min(k, max_k)].any(dim=1).float().mean().item() for k in ks)
-
 
 def _per_class_accuracy(confusion: np.ndarray, idx_to_class: dict[int, str]) -> dict[str, float]:
     accuracies = {}

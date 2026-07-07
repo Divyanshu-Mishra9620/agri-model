@@ -1,11 +1,3 @@
-"""CLI inference: predict crop disease from a single image or a folder of
-images, using a training checkpoint or an exported TorchScript/ONNX model.
-
-Usage:
-    python predict.py --model checkpoints/convnextv2_tiny_baseline/best.pt --image leaf.jpg
-    python predict.py --model outputs/export/model.onnx --folder path/to/images/ --output results.json
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -16,7 +8,6 @@ from inference.predictor import DiseasePredictor
 from utils.logging_utils import setup_logging
 
 logger = logging.getLogger(__name__)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Predict crop disease from image(s).")
@@ -48,7 +39,6 @@ def main() -> None:
         with open(args.output, "w", encoding="utf-8") as fh:
             json.dump(result, fh, indent=2, ensure_ascii=False)
         logger.info("Wrote results to %s", args.output)
-
 
 if __name__ == "__main__":
     main()

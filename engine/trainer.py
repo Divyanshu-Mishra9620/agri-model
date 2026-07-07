@@ -1,8 +1,3 @@
-"""Training loop: mixed precision, gradient accumulation/clipping, LR
-scheduling, early stopping, and checkpointing — orchestrating the
-losses/optimizer/scheduler/metrics modules without duplicating their logic.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -25,16 +20,7 @@ from utils.plots import plot_curve
 
 logger = logging.getLogger(__name__)
 
-
 class EarlyStopping:
-    """Tracks a monitored metric and signals when training should stop.
-
-    `min_delta` requires a change of at least this size to count as an
-    improvement — with only 180 classes, a single validation sample
-    flipping right/wrong can swing macro-F1 by ~1/num_classes on its own;
-    without a min_delta that noise alone can repeatedly reset the patience
-    counter and mask a genuine plateau.
-    """
 
     def __init__(self, patience: int, mode: str = "max", min_delta: float = 0.0):
         if mode not in {"max", "min"}:
@@ -51,8 +37,6 @@ class EarlyStopping:
         return value > self.best + self.min_delta if self.mode == "max" else value < self.best - self.min_delta
 
     def step(self, value: float) -> bool:
-        """Update state with the latest value. Returns True iff this is the
-        best value seen so far (i.e. a new best checkpoint should be saved)."""
         improved = self.is_improvement(value)
         if improved:
             self.best = value
@@ -65,12 +49,7 @@ class EarlyStopping:
     def should_stop(self) -> bool:
         return self.counter >= self.patience
 
-
 class Trainer:
-    """Owns the epoch loop; everything scheduler/loss/metric-specific is
-    delegated to the corresponding `engine.*` module so this class only
-    coordinates, rather than re-implementing any of them.
-    """
 
     def __init__(
         self,
@@ -109,9 +88,6 @@ class Trainer:
 
         self._amp_enabled = cfg.train.amp and device.type == "cuda"
         self._amp_dtype = get_amp_dtype(device) if self._amp_enabled else torch.float32
-        # bf16 has fp32's exponent range and can't underflow the way fp16
-        # can, so it needs no loss-scaling GradScaler at all; only the fp16
-        # fallback path (older, pre-Ampere GPUs) does.
         self._use_grad_scaler = self._amp_enabled and self._amp_dtype == torch.float16
         self.scaler = torch.amp.GradScaler(device.type, enabled=self._use_grad_scaler)
         if self._amp_enabled:
@@ -144,9 +120,6 @@ class Trainer:
         return logits, loss
 
     def _backward_and_step(self, loss: torch.Tensor, accum_steps: int) -> None:
-        """Backward + (on an accumulation boundary) grad clip + optimizer
-        step, branching on whether a GradScaler is in play (fp16) or not
-        (bf16 / fp32 — plain backward is numerically safe in both)."""
         scaled_loss = loss / accum_steps
         if self._use_grad_scaler:
             self.scaler.scale(scaled_loss).backward()
@@ -207,12 +180,6 @@ class Trainer:
         best_metric: Optional[float] = None,
         early_stopping_counter: int = 0,
     ) -> dict[str, list[float]]:
-        """Run the training loop from `start_epoch` up to `epochs` (exclusive).
-
-        `best_metric` / `early_stopping_counter` let a resumed run restore
-        early-stopping state exactly rather than resetting its patience
-        budget on every resume.
-        """
         if best_metric is not None:
             self.early_stopping.best = best_metric
         self.early_stopping.counter = early_stopping_counter

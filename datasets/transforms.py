@@ -1,7 +1,3 @@
-"""Albumentations transform pipelines, built entirely from AugmentationConfig
-so every probability/parameter is configurable via YAML — nothing hardcoded.
-"""
-
 from __future__ import annotations
 
 import albumentations as A
@@ -9,14 +5,7 @@ from albumentations.pytorch import ToTensorV2
 
 from configs.schema import AugmentationConfig, DataConfig
 
-
 def build_train_transforms(data_cfg: DataConfig, aug_cfg: AugmentationConfig) -> A.Compose:
-    """Training-time augmentation pipeline.
-
-    Probabilities are kept moderate by design: the disease signal itself is
-    fine-grained leaf texture and color, so aggressive noise/dropout can
-    destroy the cues the model needs to learn, not just add robustness.
-    """
     size = data_cfg.image_size
     max_hole = max(2, int(size * aug_cfg.coarse_dropout_max_size_frac))
 
@@ -40,13 +29,7 @@ def build_train_transforms(data_cfg: DataConfig, aug_cfg: AugmentationConfig) ->
         ]
     )
 
-
 def build_eval_transforms(data_cfg: DataConfig, aug_cfg: AugmentationConfig) -> A.Compose:
-    """Deterministic resize + normalize only, for validation/test/inference.
-
-    Reused as-is by inference/predictor.py so serving preprocessing can
-    never drift from what the model was validated against.
-    """
     size = data_cfg.image_size
     return A.Compose(
         [

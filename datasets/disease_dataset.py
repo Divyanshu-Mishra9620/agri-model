@@ -1,5 +1,3 @@
-"""PyTorch Dataset over a manifest (filepath, class_name) CSV/DataFrame."""
-
 from __future__ import annotations
 
 import logging
@@ -13,17 +11,7 @@ from torch.utils.data import Dataset
 
 logger = logging.getLogger(__name__)
 
-
 class CropDiseaseDataset(Dataset):
-    """Reads images referenced by a manifest and applies an Albumentations
-    transform.
-
-    A missing/corrupt file at __getitem__ time (e.g. moved or deleted after
-    the manifest was built) logs a warning and falls through to the next
-    sample instead of crashing the whole epoch — `scripts/validate_dataset.py`
-    is the primary defense against bad files entering the manifest at all;
-    this is a last-resort safety net, not the main mechanism.
-    """
 
     def __init__(
         self,
@@ -66,5 +54,4 @@ class CropDiseaseDataset(Dataset):
 
         raise RuntimeError(
             "CropDiseaseDataset: every sample failed to load — the dataset "
-            "appears to be broken. Run scripts/validate_dataset.py."
         )

@@ -1,34 +1,22 @@
-# =============================================================================
-# KrishiNova Disease Classifier — default training configuration
-#
-# Every value here matches the dataclass defaults in configs/schema.py.
-# Copy this file (e.g. `configs/experiment_01.yaml`) rather than editing it
-# in place when you want to try a different setting, and pass it explicitly:
-#   python train.py --config configs/experiment_01.yaml
-# Any single value can also be overridden ad-hoc from the CLI without
-# creating a new file:
-#   python train.py --override optimizer.lr=1e-4 data.batch_size=16
-# =============================================================================
-
 data:
-  root_dir: "./data/raw"              # ImageFolder layout: root_dir/<ClassName>/<image>.jpg
-  splits_dir: "./data/splits"          # generated manifest_{train,val,test}.csv + class_to_idx.json
+  root_dir: "./data/raw"
+  splits_dir: "./data/splits"
   clean_manifest: "./outputs/dataset_report/clean_manifest.csv"
 
   image_size: 224
-  batch_size: 32                       # measured-safe on a 6GB-class GPU (RTX 4050) — see README
-  num_workers: 4                       # start here on Windows; tune with scripts/benchmark_dataloader.py
+  batch_size: 32
+  num_workers: 4
   pin_memory: true
   persistent_workers: true
   prefetch_factor: 4
 
   val_split: 0.10
   test_split: 0.10
-  min_samples_for_split: 10            # >= this many images -> normal stratified 3-way split
-  min_samples_for_eval: 3              # below this -> train-only, excluded from val/test
+  min_samples_for_split: 10
+  min_samples_for_eval: 3
 
   use_weighted_sampler: true
-  max_sample_weight_ratio: 20.0        # caps oversampling of the rarest classes
+  max_sample_weight_ratio: 20.0
 
 augmentation:
   mean: [0.485, 0.456, 0.406]
@@ -49,24 +37,24 @@ model:
   name: "convnextv2_tiny.fcmae_ft_in22k_in1k"
   pretrained: true
   drop_path_rate: 0.1
-  num_classes: -1                      # sentinel: auto-detected from the dataset manifest, do not set
+  num_classes: -1
 
 loss:
-  name: "label_smoothing"              # ce | weighted_ce | focal | label_smoothing | focal_ls
+  name: "label_smoothing"
   focal_gamma: 2.0
   label_smoothing: 0.1
-  class_weight_power: 1.0              # weighted_ce only
+  class_weight_power: 1.0
 
 optimizer:
   name: "adamw"
-  lr: 3.0e-4                           # backbone LR
-  head_lr_multiplier: 5.0              # classifier head trains at lr * this (freshly initialized, needs to catch up)
+  lr: 3.0e-4
+  head_lr_multiplier: 5.0
   weight_decay: 0.05
   betas: [0.9, 0.999]
   no_weight_decay_on_norm_and_bias: true
 
 scheduler:
-  name: "cosine"                       # cosine | cosine_warm_restarts | onecycle
+  name: "cosine"
   warmup_epochs: 3
   min_lr: 1.0e-6
   warm_restarts_t0: 10
@@ -75,15 +63,15 @@ scheduler:
 
 train:
   epochs: 60
-  grad_accum_steps: 4                  # 32 x 4 = 128 effective batch
+  grad_accum_steps: 4
   grad_clip_norm: 1.0
-  amp: true                            # auto bf16/fp16 — see utils/device.py::get_amp_dtype
+  amp: true
   channels_last: true
-  torch_compile: false                 # leave off on Windows (Triton/inductor support is weak there)
+  torch_compile: false
 
   early_stopping_patience: 10
   early_stopping_min_delta: 0.001
-  early_stopping_metric: "macro_f1_eval_subset"  # must name a field on engine.metrics.EpochMetrics
+  early_stopping_metric: "macro_f1_eval_subset"
   early_stopping_mode: "max"
   early_stopping_min_eval_samples: 2
 
@@ -93,7 +81,7 @@ train:
   deterministic: false
 
   stage2:
-    enabled: false                     # optional decoupled classifier re-training — see schema.py::Stage2Config
+    enabled: false
     epochs: 15
     freeze_backbone: true
     loss:

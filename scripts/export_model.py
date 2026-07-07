@@ -1,11 +1,3 @@
-"""Export a trained checkpoint to TorchScript and ONNX, with a smoke test
-confirming both exported artifacts produce (near-)identical output to the
-original PyTorch model — so a broken export is caught here, not later
-inside a serving process.
-
-Run from the repo root: `python scripts/export_model.py --checkpoint checkpoints/<experiment>/best.pt`
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -25,13 +17,11 @@ from utils.logging_utils import setup_logging
 
 logger = logging.getLogger(__name__)
 
-
 def export_torchscript(model: torch.nn.Module, example_input: torch.Tensor, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     traced = torch.jit.trace(model, example_input)
     traced.save(str(output_path))
     logger.info("Saved TorchScript model: %s", output_path)
-
 
 def export_onnx(model: torch.nn.Module, example_input: torch.Tensor, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +36,6 @@ def export_onnx(model: torch.nn.Module, example_input: torch.Tensor, output_path
     )
     logger.info("Saved ONNX model: %s", output_path)
 
-
 def smoke_test_torchscript(original: torch.nn.Module, path: Path, example_input: torch.Tensor) -> None:
     loaded = torch.jit.load(str(path))
     with torch.no_grad():
@@ -58,7 +47,6 @@ def smoke_test_torchscript(original: torch.nn.Module, path: Path, example_input:
         "TorchScript export smoke test passed (max abs diff=%.2e).",
         (original_out - loaded_out).abs().max().item(),
     )
-
 
 def smoke_test_onnx(original: torch.nn.Module, path: Path, example_input: torch.Tensor) -> None:
     try:
@@ -76,7 +64,6 @@ def smoke_test_onnx(original: torch.nn.Module, path: Path, example_input: torch.
         raise RuntimeError(f"ONNX export mismatch at {path} — outputs differ beyond tolerance.")
     logger.info("ONNX export smoke test passed (max abs diff=%.2e).", np.abs(original_out - onnx_out).max())
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export a checkpoint to TorchScript and ONNX.")
     parser.add_argument("--checkpoint", required=True)
@@ -93,11 +80,6 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / "class_to_idx.json").open("w", encoding="utf-8") as fh:
         json.dump(class_to_idx, fh, indent=2, ensure_ascii=False)
-    # Exported TorchScript/ONNX artifacts carry no config of their own —
-    # inference/predictor.py::DiseasePredictor reads this back to reconstruct
-    # the exact preprocessing (image size, normalization) the model was
-    # trained with. Without it, serving would silently fall back to defaults,
-    # which is wrong for any run that trained at a non-default image_size.
     save_config(cfg, output_dir / "config.yaml")
 
     if "torchscript" in args.formats:
@@ -111,7 +93,6 @@ def main() -> None:
         smoke_test_onnx(model, onnx_path, example_input)
 
     logger.info("Export complete: %s", output_dir)
-
 
 if __name__ == "__main__":
     main()

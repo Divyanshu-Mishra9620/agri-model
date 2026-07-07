@@ -1,11 +1,3 @@
-"""Checkpoint save / load / resume utilities.
-
-A checkpoint bundles everything needed to exactly resume training (model,
-optimizer, scheduler, AMP scaler, epoch, best-metric-so-far, RNG state) as
-well as everything needed to just load the model for evaluation/export/
-inference (state_dict + class_to_idx + the Config used to train it).
-"""
-
 from __future__ import annotations
 
 import dataclasses
@@ -26,7 +18,6 @@ from utils.device import unwrap_model
 
 logger = logging.getLogger(__name__)
 
-
 def save_checkpoint(
     path: str | Path,
     *,
@@ -40,13 +31,6 @@ def save_checkpoint(
     scaler: Optional[GradScaler] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Write a full, resumable checkpoint to `path`.
-
-    `extra` carries small bits of trainer-internal state that don't have a
-    dedicated slot here (e.g. the early-stopping patience counter) so a
-    resumed run picks up exactly where it left off instead of silently
-    resetting them.
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -75,20 +59,13 @@ def save_checkpoint(
     torch.save(payload, path)
     logger.info("Saved checkpoint: %s (epoch=%d, best_metric=%.4f)", path, epoch, best_metric)
 
-
 def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") -> dict[str, Any]:
-    """Load a raw checkpoint dict without touching any live model/optimizer."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {path}")
-    # weights_only=False: our payload intentionally carries non-tensor state
-    # (config dict, class_to_idx, RNG state tuples) alongside the weights,
-    # which PyTorch's safe-unpickling fast path (the now-default
-    # weights_only=True) would reject.
     checkpoint = torch.load(path, map_location=map_location, weights_only=False)
     logger.info("Loaded checkpoint: %s (epoch=%s)", path, checkpoint.get("epoch", "?"))
     return checkpoint
-
 
 def restore_training_state(
     checkpoint: dict[str, Any],
@@ -99,11 +76,6 @@ def restore_training_state(
     scaler: Optional[GradScaler] = None,
     restore_rng: bool = True,
 ) -> tuple[int, float]:
-    """Load state dicts from `checkpoint` into live objects to resume training.
-
-    Returns:
-        (start_epoch, best_metric): start_epoch is checkpoint epoch + 1.
-    """
     unwrap_model(model).load_state_dict(checkpoint["model_state_dict"])
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
