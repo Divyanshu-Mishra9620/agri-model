@@ -1,0 +1,97 @@
+data:
+  root_dir: E:/dataset
+  splits_dir: ./data/splits
+  clean_manifest: ./outputs/dataset_report/clean_manifest.csv
+  image_size: 224
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: false
+  prefetch_factor: 4
+  val_split: 0.1
+  test_split: 0.1
+  min_samples_for_split: 10
+  min_samples_for_eval: 3
+  use_weighted_sampler: true
+  max_sample_weight_ratio: 20.0
+augmentation:
+  mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  std:
+  - 0.229
+  - 0.224
+  - 0.225
+  random_resized_crop_scale_min: 0.7
+  hflip_p: 0.5
+  rotate_limit: 20
+  rotate_p: 0.5
+  brightness_contrast_p: 0.3
+  color_jitter_p: 0.2
+  clahe_p: 0.15
+  gauss_noise_p: 0.1
+  coarse_dropout_p: 0.15
+  coarse_dropout_max_holes: 4
+  coarse_dropout_max_size_frac: 0.1
+model:
+  name: convnextv2_tiny.fcmae_ft_in22k_in1k
+  pretrained: true
+  drop_path_rate: 0.1
+  num_classes: -1
+loss:
+  name: label_smoothing
+  focal_gamma: 2.0
+  label_smoothing: 0.1
+  class_weight_power: 1.0
+optimizer:
+  name: adamw
+  lr: 0.0001
+  head_lr_multiplier: 5.0
+  weight_decay: 0.05
+  betas:
+  - 0.9
+  - 0.999
+  no_weight_decay_on_norm_and_bias: true
+scheduler:
+  name: cosine
+  warmup_epochs: 1
+  min_lr: 1.0e-06
+  warm_restarts_t0: 10
+  warm_restarts_tmult: 2
+  onecycle_pct_start: 0.1
+train:
+  epochs: 17
+  grad_accum_steps: 4
+  grad_clip_norm: 1.0
+  amp: true
+  channels_last: true
+  torch_compile: false
+  early_stopping_patience: 6
+  early_stopping_min_delta: 0.001
+  early_stopping_metric: macro_f1_eval_subset
+  early_stopping_mode: max
+  early_stopping_min_eval_samples: 2
+  checkpoint_interval: 1
+  resume_from: checkpoints/convnextv2_tiny_baseline/best.pt
+  seed: 42
+  deterministic: false
+  stage2:
+    enabled: true
+    epochs: 15
+    freeze_backbone: true
+    loss:
+      name: label_smoothing
+      focal_gamma: 2.0
+      label_smoothing: 0.1
+      class_weight_power: 1.0
+    lr: 0.0001
+    scheduler_warmup_epochs: 1
+    scheduler_min_lr: 1.0e-06
+log:
+  log_dir: ./logs
+  checkpoint_dir: ./checkpoints
+  output_dir: ./outputs
+  experiment_name: convnextv2_tiny_baseline_stage2
+  tensorboard: true
+  csv: true

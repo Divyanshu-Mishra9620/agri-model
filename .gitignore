@@ -11,8 +11,20 @@
 !/logs/.gitkeep
 /outputs/**
 !/outputs/.gitkeep
+# A trailing-slash negation only un-ignores the directory ENTRY, not its
+# contents — /outputs/** still matches every file beneath it regardless.
+# Needed the /** form too, or outputs/export's contents (the model export
+# artifacts this repo's serving layer depends on) silently never get committed.
 !/outputs/plots/
+!/outputs/plots/**
 !/outputs/export/
+!/outputs/export/**
+# The sidecars above (class_to_idx.json, config.yaml — a few KB) are meant to
+# be committed; the exported model binaries are not — model.torchscript.pt is
+# ~112MB, over GitHub's 100MB push limit. Fetched at deploy time instead (see
+# render.yaml, scripts/fetch_model.sh, .env.example's MODEL_DOWNLOAD_URL).
+/outputs/export/*.pt
+/outputs/export/*.onnx
 
 # Python
 __pycache__/

@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Render deployment — runtime-only dependencies for serve.py.
+#
+# Deliberately NOT the same as requirements.txt (training pipeline) or a
+# plain union of it + requirements-serve.txt: this excludes everything
+# serve.py / inference/predictor.py never imports (pandas, scikit-learn,
+# tensorboard, matplotlib, onnx, onnxruntime, ImageHash, tqdm, pytest), which
+# would otherwise bloat the build and slow every deploy for no runtime benefit.
+#
+# Torch is intentionally NOT listed here — install the CPU-only wheel as a
+# separate step (see render.yaml's buildCommand); Render's standard/free web
+# service tiers have no GPU, and PyPI's default `torch` resolution can still
+# pull in CUDA-sized extras without an explicit CPU index URL.
+# ---------------------------------------------------------------------------
+
+# Model + preprocessing (what inference/predictor.py actually imports)
+timm>=1.0.11
+albumentations>=1.4.15
+opencv-python-headless>=4.10.0.84
+numpy>=1.26.4
+PyYAML>=6.0.2
+
+# Serving (see requirements-serve.txt)
+fastapi==0.115.5
+uvicorn==0.32.1
+python-multipart==0.0.31
+python-dotenv==1.2.2
+pydantic==2.10.3
