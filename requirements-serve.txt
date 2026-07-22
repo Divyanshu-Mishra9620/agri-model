@@ -1,0 +1,15 @@
+# ---------------------------------------------------------------------------
+# Serving-only dependencies for serve.py (the FastAPI wrapper around
+# DiseasePredictor). Kept separate from requirements.txt, which is scoped to
+# the training pipeline — see that file's header.
+#
+# Install into the SAME venv used for training/export (it already has
+# torch/timm/albumentations/opencv, which serve.py's imports need):
+#   pip install -r requirements-serve.txt
+# ---------------------------------------------------------------------------
+
+fastapi==0.115.5
+uvicorn==0.32.1
+python-multipart==0.0.31
+python-dotenv==1.2.2
+pydantic==2.10.3

@@ -269,11 +269,14 @@ This would require: (1) process-group init (`torch.distributed.init_process_grou
 
 This repo produces a model; it does not serve one. The wider KrishiNova app currently identifies crop diseases via third-party vision-LLM providers (Groq/Gemini/HuggingFace, in the Node backend's `disease-detection` module) — freeform text output, no fixed taxonomy. This pipeline's `class_to_idx.json` (the sorted class names discovered from your dataset's folder structure) becomes exactly that taxonomy going forward.
 
-`predict.py` / `DiseasePredictor.predict()` output (`disease`, `confidence` as 0-100, `top_k`) is intentionally shaped to slot in as a drop-in replacement for the *identification* step in the app's existing flow — it does not and should not attempt to also produce symptoms/treatment/fertilizers/prevention text; that Knowledge Base Lookup step is a separate concern the app's existing RAG service (`Retrieval aug gen/rag/`) is already well-suited to handle, keyed off the predicted disease name. A future FastAPI service wrapping this pipeline would, at minimum:
+`predict.py` / `DiseasePredictor.predict()` output (`disease`, `confidence` as 0-100, `top_k`) is intentionally shaped to slot in as a drop-in replacement for the *identification* step in the app's existing flow — it does not and should not attempt to also produce symptoms/treatment/fertilizers/prevention text; that Knowledge Base Lookup step is a separate concern the app's existing RAG service (`Retrieval aug gen/rag/`) handles, keyed off the predicted disease name.
 
-1. Instantiate `DiseasePredictor` **once** at startup (not per-request — model load is the expensive part).
-2. Accept an uploaded image, call `.predict()`.
-3. Hand the predicted `disease` name to the existing knowledge-base/RAG lookup for symptoms/precautions/mitigation/prevention.
-4. Return the combined result in whatever shape the Node backend's `Analysis` schema already expects (`detection.disease`, `confidence`, `recommendations.*`).
+**This serving layer now exists**: `serve.py` is the FastAPI service described below, wrapping `DiseasePredictor`:
+
+1. Instantiates `DiseasePredictor` **once** at startup (not per-request — model load is the expensive part).
+2. Accepts an uploaded image on `POST /predict`, calls `.predict()`.
+3. Authenticates callers via a shared `X-API-Key` header (service-to-service, not the farmer-facing user JWT) — see `.env.example`.
+
+Run it with `uvicorn serve:app --host 0.0.0.0 --port 8500` (deps in `requirements-serve.txt`, on top of this repo's training deps). The RAG service's Disease Mitigation pipeline (`Retrieval aug gen/rag/app/services/ml_client.py` and `disease_pipeline.py`) calls this endpoint, then hands the predicted `disease` name to its own knowledge-base lookup for symptoms/precautions/mitigation/prevention, grounded strictly in the matching PDF — never generating information the knowledge base doesn't contain.
 
 Nothing in this repo depends on that integration existing — it trains and evaluates completely standalone.
