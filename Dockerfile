@@ -34,8 +34,18 @@ RUN pip install --no-cache-dir -r requirements-render.txt
 
 COPY . .
 
-# The model binary isn't in the image — fetched at container start (see
-# scripts/fetch_model.sh), same file MODEL_DOWNLOAD_URL/ML_SERVICE_API_KEY
-# document. Runtime fetch (vs. build-time, as render.yaml does) sidesteps
-# Railway Docker builds needing MODEL_DOWNLOAD_URL as a build arg.
-CMD ["sh", "-c", "bash scripts/fetch_model.sh && python -m uvicorn serve:app --host 0.0.0.0 --port $PORT --log-level info"]
+# Bake the model into the image at BUILD time, not container start: a cold
+# container (Railway sleeping an idle service, or any fresh deploy) would
+# otherwise have to download ~112MB over the network before it could answer
+# its first request — confirmed in production as a 30s+ hang that tripped
+# the RAG service's ML-call timeout. Railway auto-passes service Variables
+# as Docker build args for any ARG declared here, so this reuses the same
+# MODEL_DOWNLOAD_URL Variable already set for this service — nothing new to
+# configure.
+ARG MODEL_DOWNLOAD_URL
+RUN bash scripts/fetch_model.sh
+
+ENV PORT=8500
+EXPOSE 8500
+
+CMD ["sh", "-c", "python -m uvicorn serve:app --host 0.0.0.0 --port $PORT --log-level info"]
