@@ -1,0 +1,34 @@
+# Only excludes what's clearly bulk and clearly unused by serve.py at
+# runtime (verified via its actual import chain: configs/, datasets/,
+# models/, utils/, inference/ — everything else stays in, including
+# engine/train.py/tests/ which aren't imported but are small enough that
+# excluding them isn't worth the risk of breaking something).
+
+.git
+.github
+.kri_venv/
+.venv/
+venv/
+env/
+
+data/
+checkpoints/
+logs/
+outputs/**/*.pt
+outputs/**/*.onnx
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+.env
