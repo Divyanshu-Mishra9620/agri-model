@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -44,7 +45,14 @@ logger = logging.getLogger("ml.serve")
 
 ML_MODEL_PATH = Path(os.getenv("ML_MODEL_PATH", "outputs/export/model.torchscript.pt"))
 ML_SERVICE_API_KEY = os.getenv("ML_SERVICE_API_KEY", "")
-MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB, matches the RAG/backend upload caps
+ML_NUM_THREADS = int(os.getenv("ML_NUM_THREADS", "1"))
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MIN_DECODE_SIDE = 448
+_REDUCED_COLOR_FLAGS = (
+    (8, cv2.IMREAD_REDUCED_COLOR_8),
+    (4, cv2.IMREAD_REDUCED_COLOR_4),
+    (2, cv2.IMREAD_REDUCED_COLOR_2),
+)
 
 if not ML_SERVICE_API_KEY:
     logger.error(
@@ -53,9 +61,8 @@ if not ML_SERVICE_API_KEY:
         "RAG service is configured to send."
     )
 
-# TorchScript inference (eval mode, no in-place state mutation) is safe to call
-# concurrently in practice, but a lock removes any doubt for near-zero cost at
-# this service's expected request volume — simplicity over marginal throughput.
+cv2.setNumThreads(ML_NUM_THREADS)
+
 _predict_lock = threading.Lock()
 
 
@@ -77,12 +84,25 @@ class HealthResponse(BaseModel):
     num_classes: int | None = None
     device: str | None = None
     backend: str | None = None
+    peak_rss_mb: float | None = None
+
+
+def _peak_rss_mb() -> float | None:
+    try:
+        import resource
+    except ImportError:
+        return None
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / divisor, 1)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Loading DiseasePredictor from %s ...", ML_MODEL_PATH)
     try:
+        import torch
+
+        torch.set_num_threads(ML_NUM_THREADS)
         from inference.predictor import DiseasePredictor
 
         app.state.predictor = DiseasePredictor(ML_MODEL_PATH)
@@ -106,6 +126,19 @@ app = FastAPI(
 )
 
 
+def decode_image(data: bytes) -> np.ndarray | None:
+    buf = np.frombuffer(data, dtype=np.uint8)
+    probe = cv2.imdecode(buf, cv2.IMREAD_REDUCED_GRAYSCALE_8)
+    if probe is None:
+        return None
+    short_side = min(probe.shape[:2]) * 8
+    flag = next(
+        (f for factor, f in _REDUCED_COLOR_FLAGS if short_side // factor >= MIN_DECODE_SIDE),
+        cv2.IMREAD_COLOR,
+    )
+    return cv2.imdecode(buf, flag)
+
+
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     if not ML_SERVICE_API_KEY:
         raise HTTPException(status_code=503, detail="ML service authentication is not configured")
@@ -117,13 +150,14 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
 def health() -> HealthResponse:
     predictor = getattr(app.state, "predictor", None)
     if predictor is None:
-        return HealthResponse(status="degraded", model_loaded=False)
+        return HealthResponse(status="degraded", model_loaded=False, peak_rss_mb=_peak_rss_mb())
     return HealthResponse(
         status="healthy",
         model_loaded=True,
         num_classes=len(predictor.class_to_idx),
         device=str(predictor.device),
         backend=predictor.backend,
+        peak_rss_mb=_peak_rss_mb(),
     )
 
 
@@ -143,7 +177,7 @@ async def predict(
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image exceeds the 10MB size limit.")
 
-    array_bgr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    array_bgr = decode_image(data)
     if array_bgr is None:
         raise HTTPException(status_code=400, detail="Could not decode image.")
     array_rgb = cv2.cvtColor(array_bgr, cv2.COLOR_BGR2RGB)

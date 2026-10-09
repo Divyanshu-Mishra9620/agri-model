@@ -1,19 +1,14 @@
 services:
   - type: web
     name: agri-ml-service
-    env: python
+    runtime: docker
     region: oregon
     plan: standard
-    buildCommand: >-
-      pip install torch --index-url https://download.pytorch.org/whl/cpu --no-cache-dir &&
-      pip install --no-cache-dir -r requirements-render.txt &&
-      bash scripts/fetch_model.sh
-    startCommand: python -m uvicorn serve:app --host 0.0.0.0 --port $PORT --log-level info
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
       - key: ML_SERVICE_API_KEY
         sync: false
       - key: MODEL_DOWNLOAD_URL
-        sync: false
+        value: https://github.com/Divyanshu-Mishra9620/agri-model/releases/download/model-v1/model.torchscript.pt

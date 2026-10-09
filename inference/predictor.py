@@ -11,8 +11,6 @@ import torch
 
 from configs.schema import Config
 from datasets.transforms import build_eval_transforms
-from models.convnext_v2 import build_model
-from utils.checkpoint import load_checkpoint
 from utils.config_loader import config_from_dict, load_config
 from utils.device import get_device
 
@@ -21,6 +19,9 @@ logger = logging.getLogger(__name__)
 _VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 def load_model_from_checkpoint(checkpoint_path: str | Path) -> tuple[torch.nn.Module, Config, dict[str, int]]:
+    from models.convnext_v2 import build_model
+    from utils.checkpoint import load_checkpoint
+
     checkpoint = load_checkpoint(checkpoint_path)
     cfg = config_from_dict(checkpoint["config"])
     class_to_idx = checkpoint["class_to_idx"]

@@ -88,6 +88,17 @@ def test_predict_rejects_undecodable_image_bytes(client):
     )
     assert resp.status_code == 400
 
+def test_decode_image_downscales_large_photos_but_keeps_model_resolution():
+    buf = io.BytesIO()
+    Image.new("RGB", (4000, 3000), color=(10, 120, 40)).save(buf, format="JPEG")
+    decoded = serve.decode_image(buf.getvalue())
+    assert decoded.shape[:2] == (750, 1000)
+    assert min(decoded.shape[:2]) >= serve.MIN_DECODE_SIDE
+
+def test_decode_image_leaves_small_images_at_full_size():
+    decoded = serve.decode_image(_fake_jpeg_bytes())
+    assert decoded.shape[:2] == (32, 32)
+
 def test_health_reports_degraded_when_model_fails_to_load(monkeypatch):
     def _raise(*_args, **_kwargs):
         raise RuntimeError("simulated model load failure")
