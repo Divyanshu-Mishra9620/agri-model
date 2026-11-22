@@ -18,6 +18,7 @@ Camera → Image → ConvNeXt V2 Tiny → Disease Prediction → Knowledge Base 
 - [Evaluation](#evaluation)
 - [Inference](#inference)
 - [Export (TorchScript / ONNX)](#export-torchscript--onnx)
+- [On-device model for the gateway (edge)](#on-device-model-for-the-gateway-edge)
 - [Expected folder structure](#expected-folder-structure)
 - [Design decisions](#design-decisions)
 - [Hardware sizing](#hardware-sizing)
@@ -174,6 +175,116 @@ python scripts/export_model.py --checkpoint checkpoints/convnextv2_tiny_baseline
 ```
 
 Writes `model.torchscript.pt`, `model.onnx`, `class_to_idx.json`, and `config.yaml` to `outputs/export/` — the latter two are required sidecars `DiseasePredictor` reads to reconstruct exact class names and preprocessing when loading an exported artifact (not a raw checkpoint). Each export is smoke-tested against the original PyTorch model's output before being trusted (`torch.allclose` within tolerance) — a broken export fails here, not later inside a serving process.
+
+## On-device model for the gateway (edge)
+
+The field gateway (ESP32-S3) also classifies every camera photo itself, so the
+farmer gets an answer when the cloud is unreachable and a second opinion when
+it is not. ConvNeXt V2 Tiny cannot run on a microcontroller, so `edge/` trains
+a small student network to imitate it and converts that to int8 C code for the
+firmware (`hardware/gateway_node/`). Run everything from this `ml/` folder, in
+the same virtualenv as training.
+
+**1. Train the student (GPU, a few hours).**
+
+```bash
+python -m edge.train_edge --teacher checkpoints/convnextv2_tiny_baseline_stage2/best.pt
+```
+
+Defaults: `mobilenetv2_050` (ImageNet-pretrained, ~1 M parameters once the
+232-class head is attached), 160×160 input, 12 epochs, batch 64. Each batch is
+augmented exactly as in teacher training at 224 px; the teacher sees it at
+224 px, the student the same image shrunk to 160 px, and the student learns
+from a mix of the teacher's softened probabilities (`--alpha 0.7`,
+`--temperature 2`) and the true labels. It reuses the teacher checkpoint's
+config, so it reads the same `data/splits` and class order. Checkpoints go to
+`checkpoints/edge_mobilenetv2_050_160/`; add `--resume` to continue after an
+interruption. Expect each epoch to take about as long as a teacher epoch did —
+data loading, not the GPU, sets the pace. `--img-size 128` cuts the gateway's
+compute by ~35 % at some cost in accuracy; `--no-teacher` skips distillation.
+
+**2. Quantize, measure and export.**
+
+```bash
+python -m edge.export_edge --checkpoint checkpoints/edge_mobilenetv2_050_160/best.pt
+```
+
+This folds BatchNorm, checks the folded graph against PyTorch, calibrates
+int8 ranges on 512 training photos, then measures the held-out test set three
+ways and prints them:
+
+| Row | What it is |
+|---|---|
+| `float_eval_resize` | float student, normal eval resize — what training reported |
+| `float_device_input` | float student fed the gateway's preprocessing (box resize) |
+| `int8_device_input` | **the number the gateway will actually score** |
+
+It writes `kn_edge_model.h` / `kn_edge_model.cpp` into `../../hardware/gateway_node`
+(change with `--gateway-dir`), plus `outputs/<run>/edge_report.json` and
+`outputs/<run>/edge_int8.pt`. The int8 figures come from `edge/int8.py`, whose
+integer arithmetic the gateway's engine (`kn_edge.cpp`) reproduces bit for bit;
+the gateway proves it at every boot with a self-test vector the exporter
+embeds in `kn_edge_model.cpp`. Then flash the gateway (see
+`hardware/README.md`, section 5.1).
+
+**3. Check a photo the way the gateway sees it.**
+
+```bash
+python -m edge.predict_edge path/to/photo.jpg --model outputs/edge_mobilenetv2_050_160/edge_int8.pt
+```
+
+Prints the same top-3 the gateway reports for that photo (to within the tiny
+difference between OpenCV's JPEG decoder and the gateway's).
+
+The student must be built only from what the gateway's engine implements
+(convolution, depthwise convolution, ReLU/ReLU6, residual add, average pool,
+fully connected) — `mobilenetv2_035/050/075/100` are accepted, but only
+`mobilenetv2_050` (default) and `mobilenetv2_100` have ImageNet weights to start
+from (the other two need `--no-pretrained` and lose accuracy). `mobilenetv2_100`
+is the step up if the int8 accuracy of the default disappoints: ~2.5 M
+parameters and ~3× the compute at 160 px, and its weights no longer fit the
+3 MB app partition next to the firmware, so the gateway then needs a custom
+partition table (16 MB modules have room for one). Anything with
+hard-swish, SiLU or squeeze-excite (MobileNetV3, EfficientNet) is refused at
+export rather than converted wrongly. `tests/test_edge.py` covers the
+quantizer, the preprocessing and end-to-end train → export runs (labelled and
+photos-only); its C engine test runs when `g++` is on the PATH.
+
+### No labelled dataset? Train from plain leaf photos
+
+The student learns from the teacher's answers, not from the labels, so it
+only needs photos. If the labelled dataset is gone (the manifests in
+`data/splits` point at files that are no longer on this machine), point
+`--images` at any folders of crop-leaf photos — subfolders are searched, names
+and folder layout don't matter, and the teacher checkpoint must still be there:
+
+```bash
+python -m edge.train_edge --images D:/leaf_photos D:/more_leaf_photos
+python -m edge.export_edge --checkpoint checkpoints/edge_mobilenetv2_050_160/best.pt
+```
+
+10 % of the photos (`--holdout`) are held back; their lists are saved next to
+the checkpoint as `train_images.txt` / `holdout_images.txt` and reused by
+`--resume` and by the exporter (calibration uses the training list). The
+exporter needs the teacher again; if it moved, pass `--teacher <path>`.
+
+What changes:
+
+- **There is no accuracy figure.** Nothing says what the right answer is, so
+  the report gives `holdout_agreement_with_teacher` instead: how often the
+  int8 gateway model picks the same disease as the cloud model on the held-back
+  photos (and how often the cloud's answer is in its top 3). The cloud model's
+  own mistakes are invisible to this number. The gateway prints "accuracy not
+  measured" at boot.
+- **It only learns what the photos show.** Diseases and crops that never
+  appear in the photos are learned poorly or not at all, even though the
+  model can still output those labels. Collect photos of the crops you grow,
+  sick and healthy, in the light and distance the field camera uses.
+- **More photos, better copy.** At least 200 are required; a few thousand is
+  a sensible minimum and tens of thousands is better. Photos from the
+  ESP32-CAM itself are the best match for what the gateway will see; public
+  leaf-disease image sets work too (their labels are simply ignored).
+- Unreadable files are skipped; non-image files are ignored.
 
 ## Expected folder structure
 

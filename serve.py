@@ -1,27 +1,3 @@
-"""
-FastAPI serving layer for the trained disease classifier.
-
-This repo (see README.md > "Integration with KrishiNova") trains and exports
-the model but deliberately does not serve it as part of the training
-pipeline. This module is that missing serving layer: it loads
-`inference.predictor.DiseasePredictor` ONCE at startup and exposes it over
-HTTP so the RAG service (`Retrieval aug gen/rag`) can call it per-request
-instead of re-loading a ~110MB model on every image.
-
-This process is a private, service-to-service API — it is called by the RAG
-backend, never directly by a browser — so it authenticates callers with a
-shared API key (ML_SERVICE_API_KEY) rather than the farmer-facing user JWT,
-and does not need CORS.
-
-Run from this directory (ml/), with the same venv used for training/export:
-    uvicorn serve:app --host 0.0.0.0 --port 8500
-
-Environment variables (see .env.example):
-    ML_MODEL_PATH        path to the exported model (default: outputs/export/model.torchscript.pt)
-    ML_SERVICE_API_KEY    shared secret required on the X-API-Key header
-    ML_SERVICE_PORT       default 8500 (only used by `python serve.py` directly)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -40,7 +16,9 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger("ml.serve")
 
 ML_MODEL_PATH = Path(os.getenv("ML_MODEL_PATH", "outputs/export/model.torchscript.pt"))
@@ -133,7 +111,11 @@ def decode_image(data: bytes) -> np.ndarray | None:
         return None
     short_side = min(probe.shape[:2]) * 8
     flag = next(
-        (f for factor, f in _REDUCED_COLOR_FLAGS if short_side // factor >= MIN_DECODE_SIDE),
+        (
+            f
+            for factor, f in _REDUCED_COLOR_FLAGS
+            if short_side // factor >= MIN_DECODE_SIDE
+        ),
         cv2.IMREAD_COLOR,
     )
     return cv2.imdecode(buf, flag)
@@ -141,16 +123,22 @@ def decode_image(data: bytes) -> np.ndarray | None:
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     if not ML_SERVICE_API_KEY:
-        raise HTTPException(status_code=503, detail="ML service authentication is not configured")
+        raise HTTPException(
+            status_code=503, detail="ML service authentication is not configured"
+        )
     if not x_api_key or x_api_key != ML_SERVICE_API_KEY:
-        raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid X-API-Key header"
+        )
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health() -> HealthResponse:
     predictor = getattr(app.state, "predictor", None)
     if predictor is None:
-        return HealthResponse(status="degraded", model_loaded=False, peak_rss_mb=_peak_rss_mb())
+        return HealthResponse(
+            status="degraded", model_loaded=False, peak_rss_mb=_peak_rss_mb()
+        )
     return HealthResponse(
         status="healthy",
         model_loaded=True,
@@ -161,7 +149,9 @@ def health() -> HealthResponse:
     )
 
 
-@app.post("/predict", response_model=PredictResponse, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/predict", response_model=PredictResponse, dependencies=[Depends(require_api_key)]
+)
 async def predict(
     file: UploadFile = File(...),
     top_k: int = Query(3, ge=1, le=10),
@@ -171,11 +161,15 @@ async def predict(
         raise HTTPException(status_code=503, detail="Model is not loaded")
 
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Please upload an image.")
+        raise HTTPException(
+            status_code=400, detail="Invalid file type. Please upload an image."
+        )
 
     data = await file.read()
     if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image exceeds the 10MB size limit.")
+        raise HTTPException(
+            status_code=413, detail="Image exceeds the 10MB size limit."
+        )
 
     array_bgr = decode_image(data)
     if array_bgr is None:
